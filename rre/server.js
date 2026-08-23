@@ -27,9 +27,11 @@ Extract every purchasable line item and every charge (tax, tip/gratuity).
 Return ONLY a JSON object with this exact shape, no other text:
 {
   "items": [
-    { "desc": "string, the item name as best you can tell", "price": number, "category": "Food" | "Alcohol" | "Tax" | "Tip" }
+    { "desc": "string, the item name as best you can tell", "price": 12.99, "category": "Food" | "Alcohol" | "Tax" | "Tip" }
   ]
 }
+
+The "price" field MUST be a plain JSON number (e.g. 12.99), never a string, and never include a currency symbol like "$".
 
 Rules:
 - "Alcohol" = beer, wine, liquor, cocktails, and any other alcoholic beverages.
