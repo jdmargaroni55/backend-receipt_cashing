@@ -1,7 +1,7 @@
 {
   "name": "receipt-backend",
   "version": "1.0.0",
-  "description": "Backend that holds the OpenAI key privately and categorizes receipt text into food/alcohol/tax/tip.",
+  "description": "Backend that holds the Gemini API key privately and categorizes receipt text into food/alcohol/tax/tip.",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -13,6 +13,6 @@
   "dependencies": {
     "express": "^4.19.2",
     "cors": "^2.8.5",
-    "openai": "^4.52.0"
+    "@google/genai": "latest"
   }
 }
