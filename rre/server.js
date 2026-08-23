@@ -60,6 +60,7 @@ app.post("/api/categorize", async (req, res) => {
     });
 
     const raw = completion.choices[0].message.content;
+    console.log("Raw OpenAI response:", raw);
     const parsed = JSON.parse(raw);
 
     if (!Array.isArray(parsed.items)) {
