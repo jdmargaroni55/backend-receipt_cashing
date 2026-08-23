@@ -65,7 +65,7 @@ app.post("/api/categorize", async (req, res) => {
     }
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: `${SYSTEM_PROMPT}\n\nReceipt text:\n${text}`,
       config: {
         responseMimeType: "application/json",
