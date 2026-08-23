@@ -1,7 +1,7 @@
 {
   "name": "receipt-backend",
   "version": "1.0.0",
-  "description": "Backend that holds the Gemini API key privately and categorizes receipt text into food/alcohol/tax/tip.",
+  "description": "A small server that holds the Gemini AI key privately and reads receipt photos, sorting charges into food/alcohol/tax/tip.",
   "type": "module",
   "main": "server.js",
   "scripts": {
