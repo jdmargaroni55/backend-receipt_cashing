@@ -1,7 +1,7 @@
 // server.js
 //
-// Small backend that keeps your OpenAI API key private on the server.
-// The phone/browser app sends it raw OCR text; this server asks OpenAI
+// Small backend that keeps your Gemini API key private on the server.
+// The phone/browser app sends it raw OCR text; this server asks Gemini
 // to split it into line items (Food, Alcohol, Tax, Tip) and sends back
 // clean JSON.
 //
@@ -10,37 +10,52 @@
 
 import express from "express";
 import cors from "cors";
-import OpenAI from "openai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const app = express();
 app.use(cors());               // allow the web app (a different origin) to call this
 app.use(express.json({ limit: "1mb" }));
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, // set this in your host's dashboard, never in code
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY, // set this in your host's dashboard, never in code
 });
 
 const SYSTEM_PROMPT = `You are a receipt-parsing assistant.
 You will be given raw, possibly messy OCR text scanned from a restaurant or store receipt.
 Extract every purchasable line item and every charge (tax, tip/gratuity).
 
-Return ONLY a JSON object with this exact shape, no other text:
-{
-  "items": [
-    { "desc": "string, the item name as best you can tell", "price": 12.99, "category": "Food" | "Alcohol" | "Tax" | "Tip" }
-  ]
-}
-
-The "price" field MUST be a plain JSON number (e.g. 12.99), never a string, and never include a currency symbol like "$".
-
 Rules:
-- "Alcohol" = beer, wine, liquor, cocktails, and any other alcoholic beverages.
-- "Food" = all other food and non-alcoholic drinks.
+- "Alcohol" = beer, wine, liquor, cocktails, and any other alcoholic beverages (recognize actual drink/brand names, not just the literal word "alcohol").
+- "Food" = all other food and non-alcoholic drinks (recognize actual dish/drink names, not just the literal word "food").
 - "Tax" = sales tax / VAT / GST lines.
 - "Tip" = tip, gratuity, or service charge lines.
 - Do NOT include subtotal, total, balance due, change, or payment method lines (card numbers, "visa", "cash", etc.) as items.
 - If a price is ambiguous or missing, do your best guess but never invent items that aren't implied by the text.
-- Prices should be positive numbers with two decimals, no currency symbols.`;
+- Prices must be plain numbers (e.g. 12.99), never strings, never with a currency symbol.`;
+
+// Gemini's structured-output schema — this forces the model to return
+// exactly this shape, so we don't have to hope it follows instructions.
+const responseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          desc: { type: Type.STRING },
+          price: { type: Type.NUMBER },
+          category: {
+            type: Type.STRING,
+            enum: ["Food", "Alcohol", "Tax", "Tip"],
+          },
+        },
+        required: ["desc", "price", "category"],
+      },
+    },
+  },
+  required: ["items"],
+};
 
 app.post("/api/categorize", async (req, res) => {
   try {
@@ -49,18 +64,18 @@ app.post("/api/categorize", async (req, res) => {
       return res.status(400).json({ error: "Missing 'text' field in request body." });
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      temperature: 0,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: text },
-      ],
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `${SYSTEM_PROMPT}\n\nReceipt text:\n${text}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema,
+        temperature: 0,
+      },
     });
 
-    const raw = completion.choices[0].message.content;
-    console.log("Raw OpenAI response:", raw);
+    const raw = response.text;
+    console.log("Raw Gemini response:", raw);
     const parsed = JSON.parse(raw);
 
     if (!Array.isArray(parsed.items)) {
