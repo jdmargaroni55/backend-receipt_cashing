@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Scan → Split The Bill</title>
+
+<!-- ===================================================================
+     PWA (Progressive Web App) SETUP
+     These tags are what let a phone offer to "install" this page as a
+     real app icon, rather than just a bookmark. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#B5432E">
+
+<!-- iOS-specific tags (Safari doesn't fully support the manifest file above,
+     so it needs to be told separately how to behave as an installed app) -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ReceiptSplit">
+<link rel="apple-touch-icon" href="icon-192.png">
+<!-- =================================================================== -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ===================================================================
+     COLOR PALETTE
+     These are named "variables" — instead of typing the same color code
+     everywhere, we give it a name once here and reuse the name below.
+     If you want to change the look later, you only edit these lines.
+     =================================================================== */
+  :root{
+    --paper: #FAF6EC;       /* the receipt's background color (off-white paper) */
+    --paper-dark: #EFE8D8;  /* a slightly darker paper shade, used for boxes */
+    --ink: #2B2A26;         /* main text color (near-black, like ink) */
+    --ink-soft: #6B665A;    /* lighter gray text, for less important labels */
+    --stamp: #B5432E;       /* the reddish "stamp" accent color */
+    --ok: #4C6B4F;          /* green, used for the "Tip" category */
+    --line: #D8D0BC;        /* light tan color used for borders/dividers */
+  }
+
+  /* Reset: makes every element's sizing behave predictably */
+  *{box-sizing:border-box;}
+
+  html,body{
+    margin:0;
+    min-height:100vh;
+    /* a subtle diagonal-stripe background pattern behind the receipt */
+    background: repeating-linear-gradient(135deg, #E7E0CE 0 2px, #E3DBC7 2px 4px);
+    font-family: 'IBM Plex Mono', monospace; /* a typewriter-style font, fits the receipt theme */
+    color: var(--ink);
+    display:flex;
+    justify-content:center; /* centers the receipt card horizontally */
+    padding: 28px 14px 60px;
+  }
+
+  /* The main white "receipt" card itself */
+  .receipt{
+    width:100%;
+    max-width: 440px; /* keeps it a comfortable width on desktop, full-width on phones */
+    background: var(--paper);
+    box-shadow: 0 20px 40px rgba(30,25,10,0.25); /* drop shadow so it looks like it's floating */
+    position:relative;
+    padding: 0 0 30px;
+  }
+
+  /* This creates the "torn paper" zigzag effect at the bottom of the receipt */
+  .receipt::after{
+    content:"";
+    position:absolute;
+    left:0; right:0; bottom:-1px;
+    height:14px;
+    background:
+      linear-gradient(-45deg, var(--paper) 8px, transparent 0) 0 0,
+      linear-gradient(45deg, var(--paper) 8px, transparent 0) 0 0;
+    background-size: 16px 16px;
+    background-repeat: repeat-x;
+  }
+
+  header{
+    padding: 26px 26px 16px;
+    text-align:center;
+    border-bottom: 1px dashed var(--line); /* dashed line like a real receipt's tear-off edge */
+  }
+  header .eyebrow{ /* the small uppercase label above the title */
+    letter-spacing: 0.28em;
+    font-size: 10px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  header h1{
+    margin: 8px 0 4px;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  header p{
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+  .stamp{ /* the little red rotated "stamp" badge */
+    display:inline-block;
+    margin-top: 10px;
+    border: 2px solid var(--stamp);
+    color: var(--stamp);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    padding: 3px 10px;
+    transform: rotate(-3deg);
+    border-radius: 3px;
+  }
+
+  section{ padding: 20px 26px 0; }
+  .row-label{ /* the small "01 · Source Image" style section headers */
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display:flex;
+    justify-content: space-between;
+  }
+
+  /* The clickable box where the user picks/takes a photo */
+  #dropzone{
+    border: 1.5px dashed var(--line);
+    border-radius: 4px;
+    padding: 22px 14px;
+    text-align:center;
+    background: var(--paper-dark);
+    cursor:pointer;
+    transition: border-color .15s ease, background .15s ease; /* smooth hover effect */
+  }
+  #dropzone:hover, #dropzone.drag{
+    border-color: var(--stamp);
+    background: #F2E9D6;
+  }
+  #dropzone .icon{ font-size: 26px; }
+  #dropzone .main{ font-size: 13px; font-weight: 600; margin-top: 6px; }
+  #dropzone .sub{ font-size: 10.5px; color: var(--ink-soft); margin-top: 3px; }
+
+  .btn-row{ display:flex; gap:10px; margin-top: 12px; }
+  button{
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 11px 10px;
+    border-radius: 3px;
+    border: 1.5px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    cursor:pointer;
+    flex:1; /* buttons in a row share space equally */
+    text-transform: uppercase;
+  }
+  button.secondary{ /* the lighter "Clear" style button */
+    background: transparent;
+    color: var(--ink);
+  }
+  button:disabled{
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  button:active:not(:disabled){ transform: translateY(1px); } /* subtle "press down" feel when tapped */
+
+  #preview-wrap{ margin-top: 14px; display:none; } /* hidden until a photo is chosen */
+  #preview-wrap img{
+    width:100%;
+    display:block;
+    border: 1px solid var(--line);
+    filter: sepia(6%) contrast(1.02); /* gives the preview photo a warm receipt-paper tint */
+  }
+
+  /* The "loading" indicator shown while we wait for the AI */
+  #status{
+    margin-top: 14px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    display:none;
+    align-items:center;
+    gap:8px;
+  }
+  #status.active{ display:flex; }
+  .spinner{ /* the small spinning circle */
+    width:12px; height:12px;
+    border: 2px solid var(--line);
+    border-top-color: var(--stamp);
+    border-radius:50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink:0;
+  }
+  @keyframes spin{ to { transform: rotate(360deg); } }
+
+  #items-wrap, #summary-wrap{ margin-top: 18px; display:none; } /* hidden until results come back */
+
+  /* Each row in the editable item list (one line item = one row) */
+  .item-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding: 8px 0;
+    border-bottom: 1px dotted var(--line);
+    font-size: 12px;
+  }
+  .item-row input[type=text]{ /* the item's name, editable */
+    flex: 1 1 auto;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink);
+    padding: 2px 0;
+  }
+  .item-row input[type=text]:focus{ outline: none; border-bottom: 1px solid var(--stamp); }
+  .item-row input[type=number]{ /* the item's price, editable */
+    width: 64px;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: #fff;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 4px 5px;
+    text-align: right;
+  }
+  .item-row select{ /* the category dropdown (Food/Alcohol/Tax/Tip/Ignore) */
+    flex-shrink: 0;
+    font-family: inherit;
+    font-size: 10.5px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: #fff;
+    padding: 4px 3px;
+    max-width: 92px;
+  }
+  .item-row .del{ /* the little ✕ delete button on each row */
+    flex-shrink:0;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    color: var(--ink-soft);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+  .item-row .del:hover{ color: var(--stamp); }
+
+  /* A row the AI wasn't fully sure about gets a soft orange highlight,
+     so the person's eye is drawn to double-check it. */
+  .item-row.low-confidence{
+    background: #FBEEDB;
+    border-radius: 3px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .item-row.low-confidence input,
+  .item-row.low-confidence select{
+    background: #FFF9EF;
+  }
+  /* The small "?" badge shown on a low-confidence row */
+  .flag{
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--stamp);
+    font-weight: 700;
+  }
+
+  /* The banner at the top of the item list, shown only if something needs review */
+  #review-banner{
+    display:none;
+    background: #FBEEDB;
+    border: 1px solid #E3B778;
+    border-radius: 3px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #7A4A17;
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+
+  /* Color-code the dropdown text depending on which category is picked */
+  select.cat-Food{ color: var(--ink); }
+  select.cat-Alcohol{ color: var(--stamp); }
+  select.cat-Tax{ color: var(--ink-soft); }
+  select.cat-Tip{ color: var(--ok); }
+  select.cat-Ignore{ color: #B9B2A0; }
+
+  #add-item-btn{
+    margin-top: 10px;
+    font-size: 10.5px;
+    padding: 8px 10px;
+  }
+
+  /* The totals section (Food + Drinks / Alcohol / Tax / Tip / Total) */
+  .summary-line{
+    display:flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 7px 0;
+    border-bottom: 1px dotted var(--line);
+  }
+  .summary-line.total{ /* the final grand total line looks bolder */
+    border-top: 1.5px solid var(--ink);
+    border-bottom: none;
+    margin-top: 4px;
+    padding-top: 10px;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .summary-line .label{ color: var(--ink-soft); }
+  .summary-line.total .label{ color: var(--ink); }
+  /* Little colored bullet dots before each summary label */
+  .dot-alcohol::before{ content:"● "; color: var(--stamp); }
+  .dot-food::before{ content:"● "; color: var(--ink); }
+  .dot-tax::before{ content:"● "; color: var(--ink-soft); }
+  .dot-tip::before{ content:"● "; color: var(--ok); }
+
+  .note{ /* the small helper text under the item list */
+    font-size: 10px;
+    color: var(--ink-soft);
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+
+  /* The "when was this?" line shown above the item list */
+  #datetime-row{
+    display:none;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--paper-dark);
+    border-radius: 3px;
+  }
+  #datetime-row.flagged{ background: #FBEEDB; color: #7A4A17; }
+  #datetime-row b{ color: var(--ink); font-weight: 600; }
+
+  /* The "who was this with" lookup section */
+  #client-wrap{ margin-top: 18px; display:none; }
+  #client-status{
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  #client-name-input{
+    width: 100%;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+  }
+  #client-name-input:focus{ outline: none; border-color: var(--stamp); }
+  #calendar-btn{ margin-top: 10px; }
+
+  /* The collapsible "Show raw scanned text" box */
+  details#raw-wrap summary{
+    cursor: pointer;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  #raw-text{
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+
+  .actions{ display:flex; gap:10px; margin-top: 14px; }
+
+  footer{
+    padding: 20px 26px 0;
+    text-align:center;
+  }
+  .barcode{ /* a fake barcode graphic for decoration */
+    height: 28px;
+    margin: 4px auto 6px;
+    width: 70%;
+    background: repeating-linear-gradient(90deg, var(--ink) 0 2px, transparent 2px 4px, var(--ink) 4px 5px, transparent 5px 9px);
+    opacity: 0.85;
+  }
+  footer .small{
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+
+  /* The real file-picker input is invisible — we trigger it by clicking our styled dropzone instead */
+  input[type=file]{ display:none; }
+</style>
+</head>
+<body>
+
+<!-- ===================================================================
+     THE VISIBLE PAGE (HTML)
+     This is what the user actually sees and taps on. The JavaScript
+     further down fills in data and reacts to clicks.
+     =================================================================== -->
+<div class="receipt">
+  <header>
+    <div class="eyebrow">Pocket AI Terminal</div>
+    <h1>Scan → Split The Bill</h1>
+    <p>Photograph a receipt. An AI reads it and sorts food, alcohol, tax, and tip.</p>
+    <div class="stamp">no local upload · sent only to your own server</div>
+  </header>
+
+  <section>
+    <div class="row-label"><span>01 · Source Image</span><span id="file-name"></span></div>
+
+    <!-- Clicking this box opens the phone's camera/gallery picker -->
+    <div id="dropzone">
+      <div class="icon">📷</div>
+      <div class="main">Tap to take or choose a photo</div>
+      <div class="sub">JPG, PNG — sent to your AI backend for reading</div>
+    </div>
+    <!-- The real (hidden) file input. "capture=environment" hints phones to open the back camera. -->
+    <input type="file" id="file-input" accept="image/*" capture="environment">
+
+    <div id="preview-wrap">
+      <img id="preview" alt="Selected image preview">
+    </div>
+
+    <div class="btn-row" id="scan-row" style="display:none;">
+      <button id="scan-btn">Read receipt</button>
+      <button class="secondary" id="clear-btn">Clear</button>
+    </div>
+
+    <!-- Shown only while we're waiting on the AI to respond -->
+    <div id="status">
+      <div class="spinner"></div>
+      <span id="status-text">Asking AI to read the receipt…</span>
+    </div>
+  </section>
+
+  <!-- The editable list of items, shown after the AI responds -->
+  <section id="items-wrap">
+    <div class="row-label"><span>02 · Line Items</span><span>edit as needed</span></div>
+
+    <!-- Shows the date/time the AI read off the receipt, if any -->
+    <div id="datetime-row"></div>
+
+    <!-- Shown only if the AI flagged one or more fields as uncertain -->
+    <div id="review-banner"></div>
+
+    <div id="items-list"></div>
+    <button class="secondary" id="add-item-btn">+ Add line manually</button>
+    <div class="note">Rows highlighted in orange are ones the AI wasn't fully sure about — please double-check those. Tap a dropdown to fix a wrong category guess, edit any text/price directly, or tap ✕ to remove a line.</div>
+  </section>
+
+  <!-- Figuring out who the meal was with, via Outlook Calendar or manual entry -->
+  <section id="client-wrap">
+    <div class="row-label"><span>03 · Who Was This With?</span><span></span></div>
+    <div id="client-status">Connect your Outlook Calendar to auto-detect who this meal was with, based on the receipt's date and time.</div>
+    <button class="secondary" id="calendar-btn">Connect Outlook Calendar</button>
+    <input type="text" id="client-name-input" placeholder="e.g. Jordan from Acme Co." style="display:none;">
+  </section>
+
+  <!-- The totals, shown after the AI responds -->
+  <section id="summary-wrap">
+    <div class="row-label"><span>04 · Summary</span><span></span></div>
+    <div class="summary-line"><span class="label dot-food">Food + Drinks</span><span id="sum-food">$0.00</span></div>
+    <div class="summary-line"><span class="label dot-alcohol">Alcohol</span><span id="sum-alcohol">$0.00</span></div>
+    <div class="summary-line"><span class="label dot-tax">Tax</span><span id="sum-tax">$0.00</span></div>
+    <div class="summary-line"><span class="label dot-tip">Tip</span><span id="sum-tip">$0.00</span></div>
+    <div class="summary-line total"><span class="label">Total</span><span id="sum-total">$0.00</span></div>
+
+    <details id="raw-wrap">
+      <summary>Show raw text the AI read</summary>
+      <div id="raw-text"></div>
+    </details>
+
+    <div class="actions">
+      <button id="pdf-btn">Save as PDF</button>
+      <button class="secondary" id="txt-btn">Save as .txt</button>
+    </div>
+  </section>
+
+  <footer>
+    <div class="barcode"></div>
+    <div class="small">Thank you for scanning</div>
+  </footer>
+</div>
+
+<!-- This library lets us build a downloadable PDF file entirely in the browser -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- This library lets us ask the person to sign in with Microsoft, so we can read their Outlook Calendar -->
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3/lib/msal-browser.min.js"></script>
+
+<script>
+  /* =====================================================================
+     PART 1 — GRABBING REFERENCES TO THE HTML ELEMENTS ABOVE
+     "document.getElementById('x')" finds the HTML element whose id="x"
+     is set, so we can read from it or change it later in the code.
+     ===================================================================== */
+  const dropzone   = document.getElementById('dropzone');
+  const fileInput  = document.getElementById('file-input');
+  const fileName   = document.getElementById('file-name');
+  const previewWrap= document.getElementById('preview-wrap');
+  const previewImg = document.getElementById('preview');
+  const scanRow    = document.getElementById('scan-row');
+  const scanBtn    = document.getElementById('scan-btn');
+  const clearBtn   = document.getElementById('clear-btn');
+  const statusEl   = document.getElementById('status');
+  const statusText = document.getElementById('status-text');
+
+  const itemsWrap  = document.getElementById('items-wrap');
+  const itemsList  = document.getElementById('items-list');
+  const addItemBtn = document.getElementById('add-item-btn');
+  const summaryWrap= document.getElementById('summary-wrap');
+  const rawText    = document.getElementById('raw-text');
+  const datetimeRow= document.getElementById('datetime-row');
+  const reviewBanner = document.getElementById('review-banner');
+
+  const clientWrap   = document.getElementById('client-wrap');
+  const clientStatus = document.getElementById('client-status');
+  const calendarBtn  = document.getElementById('calendar-btn');
+  const clientInput  = document.getElementById('client-name-input');
+
+  const pdfBtn     = document.getElementById('pdf-btn');
+  const txtBtn     = document.getElementById('txt-btn');
+
+  /* =====================================================================
+     PART 2 — SETTINGS
+     ===================================================================== */
+
+  // This is the address of YOUR backend server (the one running server.js
+  // on Render). The browser sends the photo here; the server is the only
+  // place that holds the secret AI key and talks to Google's AI.
+  const BACKEND_URL = "https://backend-receipt-cashing.onrender.com/api/categorize";
+
+  // A shared "app password" that must match APP_SHARED_SECRET set on your
+  // Render backend. This isn't strong security (anyone who views this
+  // page's source can see it) but it stops random outside traffic from
+  // hitting your backend and using up your AI quota. Set the same value
+  // here and in Render's environment variables.
+  const APP_SHARED_SECRET = "";
+
+  // Your Microsoft "Application (client) ID" — lets people sign in with
+  // Microsoft/Outlook to grant this page permission to read their Calendar.
+  // You get this for free from the Azure Portal (see the README for exact
+  // steps). Leave it blank and the "Connect Outlook Calendar" button will
+  // be hidden, and the app will just ask you to type the name in instead.
+  const MS_CLIENT_ID = "";
+
+  // Which Microsoft accounts are allowed to sign in:
+  //   "common"       = both work/school AND personal Outlook.com accounts (current setting — good for testing)
+  //   "organizations"= work/school accounts only
+  //   "https://login.microsoftonline.com/YOUR-TENANT-ID" = only your company (switch to this before rolling out to the team)
+  const MS_AUTHORITY = "https://login.microsoftonline.com/common";
+
+  // The five buckets an item can be sorted into.
+  const CATEGORIES = ['Food', 'Alcohol', 'Tax', 'Tip', 'Ignore'];
+
+  /* =====================================================================
+     PART 3 — "MEMORY" FOR THE CURRENT RECEIPT
+     These variables hold the data we're currently working with. They get
+     reset every time the user clears the form or picks a new photo.
+     ===================================================================== */
+  let currentFile = null;   // the actual photo file the user picked
+  let rawScanText = '';     // the plain text the AI read off the receipt (for reference/export)
+  let items = [];           // the list of {desc, price, category, confidence} objects
+  let receiptDate = '';     // date the AI read off the receipt, e.g. "2026-08-23"
+  let receiptTime = '';     // time the AI read off the receipt, e.g. "12:00"
+  let dateTimeUncertain = false; // true if the AI wasn't confident about the date/time
+  let calendarAccessToken = null; // set once the person signs in with Microsoft
+  let msalInstance = null;        // the Microsoft sign-in helper object
+  let msalAccount = null;         // the signed-in Microsoft account, once known
+
+  /* =====================================================================
+     PART 4 — PICKING A PHOTO
+     ===================================================================== */
+
+  // Tapping the styled box opens the real (invisible) file picker.
+  dropzone.addEventListener('click', () => fileInput.click());
+
+  // This runs the moment the user picks a photo from the picker.
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) loadFile(file);
+  });
+
+  // Shows a preview of the chosen photo and reveals the "Read receipt" button.
+  function loadFile(file){
+    currentFile = file;
+    fileName.textContent = file.name.length > 22 ? file.name.slice(0,19) + '…' : file.name;
+
+    // Turns the file into a temporary browser link so we can show it as an <img>.
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
+
+    previewWrap.style.display = 'block';
+    scanRow.style.display = 'flex';
+    itemsWrap.style.display = 'none';
+    summaryWrap.style.display = 'none';
+    items = [];
+  }
+
+  // "Clear" button — wipes everything back to the starting state.
+  clearBtn.addEventListener('click', () => {
+    currentFile = null;
+    fileInput.value = '';
+    fileName.textContent = '';
+    previewWrap.style.display = 'none';
+    scanRow.style.display = 'none';
+    itemsWrap.style.display = 'none';
+    summaryWrap.style.display = 'none';
+    statusEl.classList.remove('active');
+    items = [];
+  });
+
+  /* =====================================================================
+     PART 5 — SENDING THE PHOTO TO THE AI AND HANDLING THE RESULT
+     ===================================================================== */
+
+  // Converts an image file into "Base64" text — a way of representing
+  // binary file data (like a photo) as plain text, so it can be safely
+  // packed inside a JSON message and sent over the internet.
+  function fileToBase64(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        // reader.result looks like "data:image/jpeg;base64,ACTUALDATA..."
+        // We only want the part after the comma.
+        const base64 = reader.result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Runs when the user taps "Read receipt."
+  scanBtn.addEventListener('click', async () => {
+    if (!currentFile) return; // safety check: do nothing if no photo was picked
+
+    // Disable the buttons and show the spinner while we wait.
+    scanBtn.disabled = true;
+    clearBtn.disabled = true;
+    statusEl.classList.add('active');
+    statusText.textContent = 'Preparing photo…';
+
+    try {
+      // Step 1: turn the photo into text-safe Base64 data.
+      const imageBase64 = await fileToBase64(currentFile);
+
+      statusText.textContent = 'Asking AI to read the receipt…';
+
+      // Step 2: send that data to our own backend server.
+      // "fetch" is the browser's built-in way of making a network request.
+      const res = await fetch(BACKEND_URL, {
+        method: 'POST', // POST = "here's some data, please process it"
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Secret': APP_SHARED_SECRET,
+        },
+        body: JSON.stringify({
+          imageBase64,
+          mimeType: currentFile.type || 'image/jpeg',
+        }),
+      });
+
+      if (!res.ok) {
+        // The server responded, but with an error (like a 500). Show what it said.
+        const body = await res.text().catch(() => '');
+        throw new Error(`Backend returned ${res.status}: ${body}`);
+      }
+
+      // Step 3: read the server's JSON reply.
+      const data = await res.json();
+      if (!Array.isArray(data.items)) {
+        throw new Error('The backend sent back an unexpected shape of data.');
+      }
+
+      // Step 4: clean up each item so bad/missing data doesn't break the app.
+      items = data.items.map(it => ({
+        desc: String(it.desc || '(item)'),
+        price: parsePrice(it.price),
+        category: CATEGORIES.includes(it.category) ? it.category : 'Food',
+        confidence: it.confidence === 'low' ? 'low' : 'high', // default to "high" if missing
+      }));
+
+      // Save the raw text (if the AI sent it back) for the "show raw text" box.
+      rawScanText = typeof data.rawText === 'string' ? data.rawText : '';
+      rawText.textContent = rawScanText || '(no raw text returned)';
+
+      // Save the date/time the AI found, and whether it was confident about them.
+      receiptDate = typeof data.date === 'string' ? data.date : '';
+      receiptTime = typeof data.time === 'string' ? data.time : '';
+      dateTimeUncertain = (data.dateConfidence === 'low') || (data.timeConfidence === 'low');
+
+      // Step 5: draw everything on screen.
+      renderItems();
+      renderDateTime();
+      itemsWrap.style.display = 'block';
+      summaryWrap.style.display = 'block';
+      clientWrap.style.display = 'block';
+      resetClientLookup();
+
+    } catch (err) {
+      // Something went wrong anywhere in the steps above — tell the user plainly.
+      alert('Something went wrong reading this receipt: ' + err.message);
+    } finally {
+      // Whether it worked or failed, always re-enable the buttons and hide the spinner.
+      statusEl.classList.remove('active');
+      scanBtn.disabled = false;
+      clearBtn.disabled = false;
+    }
+  });
+
+  // Turns a price value of unknown type/format (e.g. "$12.00", "12,00", 12.5)
+  // into a clean, safe number to do math with. If nothing usable is found, returns 0.
+  function parsePrice(val){
+    if (typeof val === 'number' && !isNaN(val)) return val;
+    if (typeof val === 'string') {
+      const cleaned = val.replace(/[^0-9.\-]/g, ''); // strip out $ signs, commas, letters, etc.
+      const num = parseFloat(cleaned);
+      if (!isNaN(num)) return num;
+    }
+    return 0;
+  }
+
+  /* =====================================================================
+     PART 6 — DRAWING THE EDITABLE ITEM LIST ON SCREEN
+     ===================================================================== */
+
+  // Rebuilds the on-screen item list from the "items" array in memory.
+  // Called whenever items are added, edited, or removed.
+  function renderItems(){
+    itemsList.innerHTML = ''; // clear whatever was there before
+
+    // Keep track of which items were flagged, so we can show a summary banner.
+    const uncertainDescs = [];
+
+    items.forEach((item, idx) => {
+      // Build one row (one <div>) for this item, with three inputs + a delete button.
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      if (item.confidence === 'low') {
+        row.className += ' low-confidence'; // gives it the orange highlight via CSS
+        uncertainDescs.push(item.desc || '(unnamed item)');
+      }
+
+      // --- Item name (editable text box) ---
+      const desc = document.createElement('input');
+      desc.type = 'text';
+      desc.value = item.desc;
+      desc.addEventListener('input', () => {
+        items[idx].desc = desc.value; // keep our data in sync as the user types
+      });
+
+      // --- Price (editable number box) ---
+      const price = document.createElement('input');
+      price.type = 'number';
+      price.step = '0.01';
+      price.value = item.price.toFixed(2);
+      price.addEventListener('input', () => {
+        items[idx].price = parseFloat(price.value) || 0;
+        updateSummary(); // recalculate totals immediately as the user edits
+      });
+
+      // --- Category dropdown ---
+      const select = document.createElement('select');
+      select.className = 'cat-' + item.category;
+      CATEGORIES.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c === 'Food' ? 'Food+Drink' : c;
+        if (c === item.category) opt.selected = true;
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', () => {
+        items[idx].category = select.value;
+        select.className = 'cat-' + select.value; // updates the text color too
+        updateSummary();
+      });
+
+      // --- Delete (✕) button ---
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '✕';
+      del.title = 'Remove line';
+      del.addEventListener('click', () => {
+        items.splice(idx, 1); // remove this one item from the array
+        renderItems();        // redraw the whole list to reflect the removal
+      });
+
+      // Put the pieces together into one row. Low-confidence rows also get a "?" badge.
+      if (item.confidence === 'low') {
+        const flag = document.createElement('span');
+        flag.className = 'flag';
+        flag.textContent = '?';
+        flag.title = 'The AI was not confident about this line — please check it';
+        row.appendChild(flag);
+      }
+      row.appendChild(desc);
+      row.appendChild(price);
+      row.appendChild(select);
+      row.appendChild(del);
+      itemsList.appendChild(row);
+    });
+
+    // Show (or hide) the "please review these" banner depending on whether
+    // anything was flagged as low-confidence.
+    if (uncertainDescs.length > 0) {
+      reviewBanner.style.display = 'block';
+      reviewBanner.textContent = `⚠ The AI wasn't fully sure about: ${uncertainDescs.join(', ')}. Please double-check the highlighted row(s) above.`;
+    } else {
+      reviewBanner.style.display = 'none';
+    }
+
+    updateSummary(); // recalculate totals whenever the list is redrawn
+  }
+
+  // Shows the date/time the AI read off the receipt above the item list.
+  // If the AI wasn't confident, it's shown with a warning style and a
+  // reminder that Calendar lookup may be unreliable.
+  function renderDateTime(){
+    if (!receiptDate && !receiptTime) {
+      datetimeRow.style.display = 'none';
+      return;
+    }
+    datetimeRow.style.display = 'block';
+    datetimeRow.className = dateTimeUncertain ? 'flagged' : '';
+
+    const dateText = receiptDate || 'unknown date';
+    const timeText = receiptTime || 'unknown time';
+    let html = `Order read as: <b>${dateText}</b> at <b>${timeText}</b>`;
+    if (dateTimeUncertain) {
+      html += ' — the AI wasn\'t fully confident about this. Calendar matching may be off; double-check if the wrong meeting turns up below.';
+    }
+    datetimeRow.innerHTML = html;
+  }
+
+  // "+ Add line manually" button — adds a blank row the user can fill in themselves.
+  addItemBtn.addEventListener('click', () => {
+    items.push({ desc: '', price: 0, category: 'Food', confidence: 'high' });
+    renderItems();
+  });
+
+  /* =====================================================================
+     PART 7 — CALCULATING AND DISPLAYING THE TOTALS
+     ===================================================================== */
+
+  // Adds up all the items by category and updates the numbers shown on screen.
+  function updateSummary(){
+    const totals = { Food: 0, Alcohol: 0, Tax: 0, Tip: 0 };
+
+    items.forEach(it => {
+      if (totals.hasOwnProperty(it.category)) {
+        totals[it.category] += (it.price || 0);
+      }
+      // Items marked "Ignore" are simply skipped — they don't count toward anything.
+    });
+
+    const grand = totals.Food + totals.Alcohol + totals.Tax + totals.Tip;
+
+    document.getElementById('sum-food').textContent    = fmt(totals.Food);
+    document.getElementById('sum-alcohol').textContent = fmt(totals.Alcohol);
+    document.getElementById('sum-tax').textContent      = fmt(totals.Tax);
+    document.getElementById('sum-tip').textContent      = fmt(totals.Tip);
+    document.getElementById('sum-total').textContent    = fmt(grand);
+  }
+
+  // Turns a plain number like 12.5 into a nicely formatted "$12.50" string.
+  function fmt(n){
+    return '$' + n.toFixed(2);
+  }
+
+  /* =====================================================================
+     PART 7.5 — FIGURING OUT WHO THE MEAL WAS WITH
+     This uses Microsoft's sign-in system to (with permission) peek at the
+     person's Outlook Calendar around the receipt's date/time, and guess
+     who the meeting/lunch was with. If that's not possible or nothing
+     matches, it just asks the person to type the name in themselves.
+
+     "MSAL" (Microsoft Authentication Library) is Microsoft's official
+     sign-in helper. The key feature we're relying on here: once someone
+     signs in, MSAL remembers them in the browser (cacheLocation: "localStorage"
+     below), so on future visits it can silently prove who they are again
+     WITHOUT popping up a login window — meaning people really do only sign
+     in once, not every single time they use the app.
+     ===================================================================== */
+
+  // Resets the client-name section back to its starting state — used
+  // every time a new receipt is scanned.
+  function resetClientLookup(){
+    clientInput.style.display = 'none';
+    clientInput.value = '';
+
+    if (!receiptDate || !receiptTime) {
+      // We don't know the meal's date/time, so calendar matching is impossible.
+      clientStatus.textContent = "Couldn't read a date/time off this receipt — who was this with?";
+      calendarBtn.style.display = 'none';
+      clientInput.style.display = 'block';
+      return;
+    }
+
+    if (!MS_CLIENT_ID) {
+      // The site owner hasn't set up Microsoft sign-in yet — skip straight to asking.
+      clientStatus.textContent = 'Who was this with?';
+      calendarBtn.style.display = 'none';
+      clientInput.style.display = 'block';
+      return;
+    }
+
+    calendarBtn.style.display = 'block';
+    calendarBtn.textContent = msalAccount ? 'Check Outlook Calendar for this receipt' : 'Connect Outlook Calendar';
+    clientStatus.textContent = msalAccount
+      ? `Signed in as ${msalAccount.username}. Tap to check your calendar for this receipt's date/time.`
+      : "Connect your Outlook Calendar to auto-detect who this meal was with, based on the receipt's date and time.";
+  }
+
+  // One-time setup of the Microsoft sign-in helper. Runs once when the
+  // page loads. If the person already signed in on a previous visit,
+  // this finds their cached account automatically — no popup needed.
+  async function initMicrosoftAuth(){
+    if (!MS_CLIENT_ID || typeof msal === 'undefined') return;
+
+    msalInstance = new msal.PublicClientApplication({
+      auth: {
+        clientId: MS_CLIENT_ID,
+        authority: MS_AUTHORITY,
+        // Microsoft sends the person back to this exact page after signing in.
+        redirectUri: window.location.origin + window.location.pathname,
+      },
+      cache: {
+        // "localStorage" is what makes the sign-in stick between visits —
+        // "sessionStorage" (the other option) would forget them every time
+        // the browser tab/window is closed.
+        cacheLocation: 'localStorage',
+        storeAuthStateInCookie: false,
+      },
+    });
+
+    await msalInstance.initialize();
+
+    // Handles the redirect back from Microsoft's login page, if we just came from there.
+    await msalInstance.handleRedirectPromise().catch(() => {});
+
+    // Check whether a previously-signed-in account is already cached.
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      msalAccount = accounts[0];
+      resetClientLookup(); // updates the button/status text now that we know who's signed in
+    }
+  }
+
+  // Runs when the person taps the "Connect/Check Outlook Calendar" button.
+  calendarBtn.addEventListener('click', async () => {
+    if (!msalInstance) {
+      alert('Microsoft sign-in isn\'t set up on this page yet.');
+      return;
+    }
+
+    if (!msalAccount) {
+      // Not signed in yet — this opens Microsoft's sign-in popup.
+      // "Calendars.Read" only allows READING events — this app can never
+      // create, edit, or delete anything on the person's calendar.
+      try {
+        const result = await msalInstance.loginPopup({ scopes: ['Calendars.Read'] });
+        msalAccount = result.account;
+      } catch (err) {
+        console.warn('Microsoft sign-in failed or was cancelled:', err);
+        return;
+      }
+    }
+
+    lookupCalendarEvent();
+  });
+
+  // Gets a fresh access token for calling Microsoft Graph. Tries silently
+  // first (using the cached sign-in, no popup) and only falls back to a
+  // popup if that silent attempt fails (e.g. the person's session expired).
+  async function getGraphToken(){
+    const request = { scopes: ['Calendars.Read'], account: msalAccount };
+    try {
+      const result = await msalInstance.acquireTokenSilent(request);
+      return result.accessToken;
+    } catch (err) {
+      const result = await msalInstance.acquireTokenPopup(request);
+      return result.accessToken;
+    }
+  }
+
+  // Asks Outlook Calendar (via Microsoft Graph) for events around the
+  // receipt's date/time, and tries to guess a client/companion name.
+  async function lookupCalendarEvent(){
+    if (!msalAccount || !receiptDate || !receiptTime) return;
+
+    clientStatus.textContent = 'Checking your calendar…';
+    calendarBtn.disabled = true;
+
+    try {
+      calendarAccessToken = await getGraphToken();
+
+      // Build a time window: 90 minutes before and after the receipt's time,
+      // so we still find the event even if the AI's time reading is a little off.
+      const mealStart = new Date(`${receiptDate}T${receiptTime}:00`);
+      const windowMs = 90 * 60 * 1000; // 90 minutes, in milliseconds
+      const startISO = new Date(mealStart.getTime() - windowMs).toISOString();
+      const endISO = new Date(mealStart.getTime() + windowMs).toISOString();
+
+      const url = `https://graph.microsoft.com/v1.0/me/calendarView` +
+        `?startDateTime=${encodeURIComponent(startISO)}&endDateTime=${encodeURIComponent(endISO)}` +
+        `&$orderby=start/dateTime`;
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${calendarAccessToken}`,
+          Prefer: 'outlook.timezone="UTC"',
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Microsoft Graph returned ${res.status}`);
+      }
+
+      const data = await res.json();
+      const event = (data.value && data.value[0]) || null;
+
+      if (!event) {
+        // No matching event — ask the person instead.
+        clientStatus.textContent = 'No matching event found on your calendar for this time — who was this with?';
+        clientInput.style.display = 'block';
+        clientInput.value = '';
+        return;
+      }
+
+      // Try to guess a name: prefer another attendee (not the signed-in
+      // person themselves), otherwise fall back to the event's title.
+      const myEmail = (msalAccount.username || '').toLowerCase();
+      const guestNames = (event.attendees || [])
+        .map(a => a.emailAddress || {})
+        .filter(a => (a.address || '').toLowerCase() !== myEmail)
+        .map(a => a.name || a.address)
+        .filter(Boolean);
+
+      const guess = guestNames.length > 0 ? guestNames.join(', ') : (event.subject || '');
+
+      clientStatus.textContent = `Found on your calendar: "${event.subject || '(untitled event)'}" — confirm or edit who this was with:`;
+      clientInput.style.display = 'block';
+      clientInput.value = guess;
+
+    } catch (err) {
+      console.warn('Calendar lookup failed:', err);
+      clientStatus.textContent = "Couldn't check your calendar just now — who was this with?";
+      clientInput.style.display = 'block';
+      clientInput.value = '';
+    } finally {
+      calendarBtn.disabled = false;
+    }
+  }
+
+  // Microsoft's script loads in the background; once it's ready, set up sign-in.
+  window.addEventListener('load', () => {
+    // Small delay/retry since the MSAL script may still be loading.
+    const tryInit = () => {
+      if (typeof msal !== 'undefined') {
+        initMicrosoftAuth();
+      } else {
+        setTimeout(tryInit, 300);
+      }
+    };
+    tryInit();
+
+    // Registers the service worker (service-worker.js), which is what makes
+    // this page installable as an app and lets it load quickly/reliably.
+    // "navigator.serviceWorker" only exists in modern browsers over HTTPS,
+    // so this safely does nothing on older/unsupported setups.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js').catch((err) => {
+        console.warn('Service worker registration failed:', err);
+      });
+    }
+  });
+
+  /* =====================================================================
+     PART 8 — BUILDING THE TEXT/PDF EXPORT
+     ===================================================================== */
+
+  // Builds one big plain-text report: the itemized breakdown, the totals,
+  // and the raw text the AI read — used by both the .txt and PDF export buttons.
+  function buildSummaryText(){
+    const totals = { Food: 0, Alcohol: 0, Tax: 0, Tip: 0 };
+    items.forEach(it => {
+      if (totals.hasOwnProperty(it.category)) totals[it.category] += (it.price || 0);
+    });
+    const grand = totals.Food + totals.Alcohol + totals.Tax + totals.Tip;
+
+    let out = 'RECEIPT BREAKDOWN\n==================\n\n';
+
+    if (receiptDate || receiptTime) {
+      out += `Date/Time: ${receiptDate || '(unknown)'} ${receiptTime || ''}\n`;
+    }
+    const clientName = clientInput.value.trim();
+    if (clientName) {
+      out += `With: ${clientName}\n`;
+    }
+    if (receiptDate || receiptTime || clientName) out += '\n';
+
+
+    out += 'Line items:\n';
+    items.forEach(it => {
+      // .padEnd/.padStart just line up the columns neatly with spaces.
+      out += `  ${it.category.padEnd(8)} ${fmt(it.price).padStart(9)}   ${it.desc}\n`;
+    });
+
+    out += '\nSummary:\n';
+    out += `  Food + Drinks   ${fmt(totals.Food).padStart(9)}\n`;
+    out += `  Alcohol         ${fmt(totals.Alcohol).padStart(9)}\n`;
+    out += `  Tax             ${fmt(totals.Tax).padStart(9)}\n`;
+    out += `  Tip             ${fmt(totals.Tip).padStart(9)}\n`;
+    out += `  ---------------------------\n`;
+    out += `  TOTAL           ${fmt(grand).padStart(9)}\n`;
+
+    out += '\n\nRaw text the AI read:\n------------------\n' + (rawScanText || '(none)');
+    return out;
+  }
+
+  // "Save as .txt" button — creates a downloadable plain-text file.
+  txtBtn.addEventListener('click', () => {
+    const blob = new Blob([buildSummaryText()], { type: 'text/plain' }); // a "Blob" is an in-memory file
+    downloadBlob(blob, suggestedName('txt'));
+  });
+
+  // "Save as PDF" button — creates a downloadable PDF file using the jsPDF library.
+  pdfBtn.addEventListener('click', () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+
+    const margin = 48;
+    const maxWidth = doc.internal.pageSize.getWidth() - margin * 2;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const lineHeight = 14;
+
+    doc.setFont('courier', 'normal'); // a monospace font, matches the receipt look
+    doc.setFontSize(11);
+
+    // splitTextToSize wraps long text into lines that fit the page width.
+    const lines = doc.splitTextToSize(buildSummaryText(), maxWidth);
+    let y = margin;
+
+    lines.forEach((line) => {
+      if (y > pageHeight - margin) {
+        doc.addPage(); // start a new page if we've run out of room
+        y = margin;
+      }
+      doc.text(line, margin, y);
+      y += lineHeight;
+    });
+
+    doc.save(suggestedName('pdf'));
+  });
+
+  // Builds a sensible file name based on the original photo's name.
+  function suggestedName(ext){
+    const base = currentFile ? currentFile.name.replace(/\.[^/.]+$/, '') : 'receipt';
+    return base + '-breakdown.' + ext;
+  }
+
+  // Triggers the browser's normal "Save File" download for a given Blob.
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob); // a temporary link pointing at the in-memory file
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();  // simulates the user clicking a download link
+    a.remove();
+    URL.revokeObjectURL(url); // frees up memory now that we're done with it
+  }
+</script>
+
+</body>
+</html>

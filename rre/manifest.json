@@ -1,0 +1,25 @@
+{
+  "name": "Scan → Split The Bill",
+  "short_name": "ReceiptSplit",
+  "description": "Photograph a receipt and let AI sort food, alcohol, tax, and tip.",
+  "start_url": "./receipt-scanner.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF6EC",
+  "theme_color": "#B5432E",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
