@@ -54,7 +54,13 @@ Rules:
 - Do NOT include subtotal, total, balance due, change, or payment method lines (card numbers, "visa", "cash", etc.) as items.
 - If a price is ambiguous or missing, do your best guess but never invent items that aren't implied by the image.
 - Prices must be plain numbers (e.g. 12.99), never strings, never with a currency symbol.
-- Also return the raw text you read off the receipt, line by line, in "rawText".`;
+- Also return the raw text you read off the receipt, line by line, in "rawText".
+
+Handwriting: many restaurant receipts have a handwritten tip amount added by the customer, often on a blank "Tip" or "Gratuity" line, sometimes with a handwritten new "Total" underneath it. Read handwritten numbers just as carefully as printed ones.
+- If you see a handwritten number next to a printed "Tip"/"Gratuity" line (even if the printed amount was blank or $0.00), use the handwritten number as the Tip amount.
+- If the tip line was left blank with no handwritten number at all, do not invent a Tip item.
+- A handwritten "Total" is usually just tip added to the printed subtotal — do not add it as its own item, since it would double-count charges already captured as Food/Alcohol/Tax/Tip.
+- If handwriting is too unclear to read confidently, prefer leaving that specific number out over guessing.`;
 
 // This describes the EXACT shape of the answer we require the AI to send
 // back — like a form with specific fields it must fill in. Gemini will
