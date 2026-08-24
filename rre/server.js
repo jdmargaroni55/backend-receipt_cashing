@@ -44,7 +44,7 @@ const ai = new GoogleGenAI({
 // exactly what we want it to do with the photo. Think of it as a very
 // detailed, very patient set of directions for a new employee.
 const SYSTEM_PROMPT = `You are a receipt-reading assistant.
-You will be given a photo of a restaurant or store receipt. Read all the text in the image yourself, then extract every purchasable line item and every charge (tax, tip/gratuity).
+You will be given a photo of a restaurant or store receipt. Read all the text in the image yourself, then extract every purchasable line item and every charge (tax, tip/gratuity), plus the date and time of the order.
 
 Rules:
 - "Alcohol" = beer, wine, liquor, cocktails, and any other alcoholic beverages (recognize actual drink/brand names, not just the literal word "alcohol").
@@ -60,7 +60,22 @@ Handwriting: many restaurant receipts have a handwritten tip amount added by the
 - If you see a handwritten number next to a printed "Tip"/"Gratuity" line (even if the printed amount was blank or $0.00), use the handwritten number as the Tip amount.
 - If the tip line was left blank with no handwritten number at all, do not invent a Tip item.
 - A handwritten "Total" is usually just tip added to the printed subtotal — do not add it as its own item, since it would double-count charges already captured as Food/Alcohol/Tax/Tip.
-- If handwriting is too unclear to read confidently, prefer leaving that specific number out over guessing.`;
+- If handwriting is too unclear to read confidently, prefer leaving that specific number out over guessing.
+
+Date and time:
+- Find the order/transaction date and time printed on the receipt (not a "best by" or unrelated date).
+- Return "date" as YYYY-MM-DD. If the year isn't printed, assume the current year.
+- Return "time" as 24-hour HH:MM (e.g. a receipt showing "12:04 PM" becomes "12:04"; "7:45 PM" becomes "19:45").
+- Receipts almost always use numeric dates in MONTH/DAY/YEAR order (this is the U.S. convention) — read "8/5/26" as August 5th, 2026, NOT May 8th. Only treat it as day/month order if the first number is greater than 12, which would make month/day impossible.
+- A 2-digit year like "26" means 2026 — assume 20XX for any 2-digit year.
+- Worked example: "Ordered: 8/5/26 6:22 PM" means date "2026-08-05" and time "18:22". This exact style (M/D/YY plus 12-hour time) is extremely common on receipts — treat it as clearly readable, not ambiguous, and extract it with high confidence.
+- Only leave date/time as an empty string if it's genuinely missing from the receipt or physically unreadable (e.g. torn, smudged past recognition) — a normal, clearly-printed date in a common format like the example above should always be extracted, not skipped out of caution.
+
+Confidence / uncertain fields:
+- You will not always be able to read every part of a receipt clearly — bad lighting, blur, faded thermal print, and messy handwriting are all common and expected.
+- For every item, set "confidence" to "low" if you are genuinely unsure about its description or price (rather than just picking your best guess silently), and "high" otherwise.
+- Do the same for the "dateConfidence" and "timeConfidence" fields, describing your confidence in the "date" and "time" values.
+- Being honest about low confidence is more useful than appearing certain — a human will review anything marked "low" before it's used, so it is always safe and correct to mark something "low" when you're not sure.`;
 
 // This describes the EXACT shape of the answer we require the AI to send
 // back — like a form with specific fields it must fill in. Gemini will
@@ -70,6 +85,10 @@ const responseSchema = {
   type: Type.OBJECT,
   properties: {
     rawText: { type: Type.STRING }, // the plain text read off the receipt
+    date: { type: Type.STRING },    // order date, format YYYY-MM-DD (or "" if unreadable)
+    time: { type: Type.STRING },    // order time, 24-hour HH:MM (or "" if unreadable)
+    dateConfidence: { type: Type.STRING, enum: ["high", "low"] },
+    timeConfidence: { type: Type.STRING, enum: ["high", "low"] },
     items: {
       type: Type.ARRAY, // a list of...
       items: {
@@ -81,12 +100,13 @@ const responseSchema = {
             type: Type.STRING,
             enum: ["Food", "Alcohol", "Tax", "Tip"], // must be exactly one of these four words
           },
+          confidence: { type: Type.STRING, enum: ["high", "low"] }, // "low" = please double-check this one
         },
-        required: ["desc", "price", "category"], // every item must have all three fields
+        required: ["desc", "price", "category", "confidence"], // every item must have all four fields
       },
     },
   },
-  required: ["items", "rawText"],
+  required: ["items", "rawText", "date", "time", "dateConfidence", "timeConfidence"],
 };
 
 // This defines what happens when the phone/browser app sends a photo to:
@@ -95,6 +115,17 @@ const responseSchema = {
 // delivering data to be processed, as opposed to just asking to view a page).
 app.post("/api/categorize", async (req, res) => {
   try {
+    // A simple "app password" check. The frontend sends this in a header;
+    // if it doesn't match what's set in Render's environment variables,
+    // we reject the request before it ever reaches (and costs money on)
+    // the AI. This isn't unbreakable — someone determined enough could
+    // view the page's source and find the value — but it stops random
+    // bots or opportunistic misuse from burning through your AI quota.
+    const providedSecret = req.header("X-App-Secret");
+    if (process.env.APP_SHARED_SECRET && providedSecret !== process.env.APP_SHARED_SECRET) {
+      return res.status(401).json({ error: "Missing or incorrect app secret." });
+    }
+
     // Pull the photo data (and its file type, like "image/jpeg") out of
     // the incoming request. "req.body" is the JSON data the app sent us.
     const { imageBase64, mimeType } = req.body;
