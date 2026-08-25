@@ -547,13 +547,6 @@
   // place that holds the secret AI key and talks to Google's AI.
   const BACKEND_URL = "https://backend-receipt-cashing.onrender.com/api/categorize";
 
-  // A shared "app password" that must match APP_SHARED_SECRET set on your
-  // Render backend. This isn't strong security (anyone who views this
-  // page's source can see it) but it stops random outside traffic from
-  // hitting your backend and using up your AI quota. Set the same value
-  // here and in Render's environment variables.
-  const APP_SHARED_SECRET = "UrkeSvRsS_KdQK7P_yO5uMpO9W64JqT5Da90Z9JHCIY";
-
   // Your Microsoft "Application (client) ID" — lets people sign in with
   // Microsoft/Outlook to grant this page permission to read their Calendar.
   // You get this for free from the Azure Portal (see the README for exact
@@ -670,7 +663,6 @@
         method: 'POST', // POST = "here's some data, please process it"
         headers: {
           'Content-Type': 'application/json',
-          'X-App-Secret': APP_SHARED_SECRET,
         },
         body: JSON.stringify({
           imageBase64,
@@ -929,6 +921,59 @@
       : "Connect your Outlook Calendar to auto-detect who this meal was with, based on the receipt's date and time.";
   }
 
+  // Detects whether the app is currently running as an installed home-screen
+  // app ("standalone" mode) rather than inside a normal Safari/Chrome tab.
+  // This matters because Microsoft's sign-in POPUP often can't open properly
+  // from an installed app (there's no regular browser window for it to pop
+  // out of) — so installed apps need a different sign-in approach (REDIRECT,
+  // handled below) instead.
+  function isRunningAsInstalledApp(){
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+
+  // A redirect-based sign-in briefly navigates away to Microsoft's login
+  // page and back, which would normally wipe out whatever receipt you'd
+  // already scanned (the browser reloads the page). These two functions
+  // save your current scan to the browser's temporary storage right before
+  // that happens, and restore it right after you're back — so nothing gets
+  // lost during an installed-app sign-in.
+  function saveScanStateForRedirect(){
+    try {
+      sessionStorage.setItem('receiptScannerPendingState', JSON.stringify({
+        items, rawScanText, receiptDate, receiptTime, dateTimeUncertain,
+      }));
+    } catch (err) {
+      console.warn('Could not save scan state before redirect:', err);
+    }
+  }
+
+  function restoreScanStateAfterRedirect(){
+    const saved = sessionStorage.getItem('receiptScannerPendingState');
+    if (!saved) return false;
+    sessionStorage.removeItem('receiptScannerPendingState'); // one-time use
+
+    try {
+      const state = JSON.parse(saved);
+      items = state.items || [];
+      rawScanText = state.rawScanText || '';
+      receiptDate = state.receiptDate || '';
+      receiptTime = state.receiptTime || '';
+      dateTimeUncertain = !!state.dateTimeUncertain;
+
+      // Redraw everything using the restored data.
+      rawText.textContent = rawScanText || '(no raw text returned)';
+      renderItems();
+      renderDateTime();
+      itemsWrap.style.display = 'block';
+      summaryWrap.style.display = 'block';
+      clientWrap.style.display = 'block';
+      return true;
+    } catch (err) {
+      console.warn('Could not restore scan state after redirect:', err);
+      return false;
+    }
+  }
+
   // One-time setup of the Microsoft sign-in helper. Runs once when the
   // page loads. If the person already signed in on a previous visit,
   // this finds their cached account automatically — no popup needed.
@@ -954,13 +999,23 @@
     await msalInstance.initialize();
 
     // Handles the redirect back from Microsoft's login page, if we just came from there.
-    await msalInstance.handleRedirectPromise().catch(() => {});
+    const redirectResult = await msalInstance.handleRedirectPromise().catch(() => null);
 
     // Check whether a previously-signed-in account is already cached.
     const accounts = msalInstance.getAllAccounts();
     if (accounts.length > 0) {
       msalAccount = accounts[0];
       resetClientLookup(); // updates the button/status text now that we know who's signed in
+    }
+
+    // If we just landed back here FROM Microsoft's sign-in page (redirect
+    // flow), restore whatever receipt was being scanned beforehand, and
+    // automatically finish the calendar lookup the person originally asked for.
+    if (redirectResult && redirectResult.account) {
+      msalAccount = redirectResult.account;
+      const restored = restoreScanStateAfterRedirect();
+      resetClientLookup();
+      if (restored) lookupCalendarEvent();
     }
   }
 
@@ -972,9 +1027,20 @@
     }
 
     if (!msalAccount) {
-      // Not signed in yet — this opens Microsoft's sign-in popup.
       // "Calendars.Read" only allows READING events — this app can never
       // create, edit, or delete anything on the person's calendar.
+      if (isRunningAsInstalledApp()) {
+        // Installed home-screen apps can't reliably open a sign-in popup,
+        // so we use "redirect" instead: save the current scan, then
+        // navigate to Microsoft's sign-in page. The page will reload when
+        // we come back — initMicrosoftAuth() (above) picks up from there.
+        saveScanStateForRedirect();
+        await msalInstance.loginRedirect({ scopes: ['Calendars.Read'] });
+        return; // the page is about to navigate away, nothing more to do here
+      }
+
+      // Normal browser tab — the popup approach works fine and is quicker
+      // (no full page reload), so we keep using it here.
       try {
         const result = await msalInstance.loginPopup({ scopes: ['Calendars.Read'] });
         msalAccount = result.account;
@@ -988,14 +1054,21 @@
   });
 
   // Gets a fresh access token for calling Microsoft Graph. Tries silently
-  // first (using the cached sign-in, no popup) and only falls back to a
-  // popup if that silent attempt fails (e.g. the person's session expired).
+  // first (using the cached sign-in, no popup). If that fails (e.g. the
+  // person's session expired), falls back to an interactive sign-in —
+  // using redirect for installed apps, popup for normal browser tabs, for
+  // the same reason described above.
   async function getGraphToken(){
     const request = { scopes: ['Calendars.Read'], account: msalAccount };
     try {
       const result = await msalInstance.acquireTokenSilent(request);
       return result.accessToken;
     } catch (err) {
+      if (isRunningAsInstalledApp()) {
+        saveScanStateForRedirect();
+        await msalInstance.acquireTokenRedirect(request);
+        return null; // page is navigating away; nothing more to return here
+      }
       const result = await msalInstance.acquireTokenPopup(request);
       return result.accessToken;
     }
@@ -1011,6 +1084,7 @@
 
     try {
       calendarAccessToken = await getGraphToken();
+      if (!calendarAccessToken) return; // page is navigating away for sign-in; stop here
 
       // Build a time window: 90 minutes before and after the receipt's time,
       // so we still find the event even if the AI's time reading is a little off.
@@ -1089,16 +1163,6 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('service-worker.js').catch((err) => {
         console.warn('Service worker registration failed:', err);
-      });
-    }
-
-    // Asks the browser to protect this app's saved data (like your Outlook
-    // sign-in) from being automatically cleared during storage cleanup.
-    // Some browsers (notably iOS Safari) don't fully honor this request,
-    // but it never hurts to ask, and it does help on browsers that respect it.
-    if (navigator.storage && navigator.storage.persist) {
-      navigator.storage.persist().then((granted) => {
-        console.log(granted ? 'Persistent storage granted.' : 'Persistent storage not granted (browser may still clear data after inactivity).');
       });
     }
   });
