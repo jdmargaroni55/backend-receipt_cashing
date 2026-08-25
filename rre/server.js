@@ -160,10 +160,6 @@ app.post("/api/categorize", async (req, res) => {
     // response.text is the AI's raw answer, as a JSON-formatted string of text.
     const raw = response.text;
 
-    // This prints the AI's answer into Render's "Logs" tab — handy for
-    // debugging if something ever looks wrong on the app's end.
-    console.log("Raw Gemini response:", raw);
-
     // Turn that JSON-formatted text into an actual JavaScript object we can use.
     const parsed = JSON.parse(raw);
 
