@@ -1066,7 +1066,21 @@
     } catch (err) {
       if (isRunningAsInstalledApp()) {
         saveScanStateForRedirect();
-        await msalInstance.acquireTokenRedirect(request);
+        try {
+          await msalInstance.acquireTokenRedirect(request);
+        } catch (redirectErr) {
+          // MSAL sometimes gets stuck thinking a sign-in is already in
+          // progress, usually left over from an interrupted previous
+          // attempt — this blocks every future attempt until cleared.
+          // If we hit that specific error, clear the stuck flag and try
+          // one more time; any other error is passed along as-is.
+          if (redirectErr && redirectErr.errorCode === 'interaction_in_progress') {
+            sessionStorage.removeItem('msal.interaction.status');
+            await msalInstance.acquireTokenRedirect(request);
+          } else {
+            throw redirectErr;
+          }
+        }
         return null; // page is navigating away; nothing more to return here
       }
       const result = await msalInstance.acquireTokenPopup(request);
@@ -1136,7 +1150,11 @@
 
     } catch (err) {
       console.warn('Calendar lookup failed:', err);
-      clientStatus.textContent = "Couldn't check your calendar just now — who was this with?";
+      // Showing the real error message (instead of a generic one) makes this
+      // diagnosable directly from the phone, without needing a computer or
+      // browser dev tools hooked up.
+      const detail = (err && (err.errorCode || err.message)) ? ` (${err.errorCode || err.message})` : '';
+      clientStatus.textContent = `Couldn't check your calendar just now${detail} — who was this with?`;
       clientInput.style.display = 'block';
       clientInput.value = '';
     } finally {
