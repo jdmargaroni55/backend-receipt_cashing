@@ -552,7 +552,7 @@
   // page's source can see it) but it stops random outside traffic from
   // hitting your backend and using up your AI quota. Set the same value
   // here and in Render's environment variables.
-  const APP_SHARED_SECRET = "";
+  const APP_SHARED_SECRET = "UrkeSvRsS_KdQK7P_yO5uMpO9W64JqT5Da90Z9JHCIY";
 
   // Your Microsoft "Application (client) ID" — lets people sign in with
   // Microsoft/Outlook to grant this page permission to read their Calendar.
@@ -1091,6 +1091,15 @@
         console.warn('Service worker registration failed:', err);
       });
     }
+
+    // Asks the browser to protect this app's saved data (like your Outlook
+    // sign-in) from being automatically cleared during storage cleanup.
+    // Some browsers (notably iOS Safari) don't fully honor this request,
+    // but it never hurts to ask, and it does help on browsers that respect it.
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then((granted) => {
+        console.log(granted ? 'Persistent storage granted.' : 'Persistent storage not granted (browser may still clear data after inactivity).');
+      });
   });
 
   /* =====================================================================
